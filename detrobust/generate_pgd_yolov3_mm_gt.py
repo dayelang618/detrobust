@@ -211,8 +211,8 @@ class CocoDetection(Dataset):
         # Pad to square resolution
         ori_image_size = img.shape[1:]
         # 计算缩放比例
-        scale_w = 608 / ori_image_size[1]
-        scale_h = 608 / ori_image_size[0]
+        scale_w = yolov3_size / ori_image_size[1]
+        scale_h = yolov3_size / ori_image_size[0]
 
         #==============
         # labels
@@ -229,16 +229,16 @@ class CocoDetection(Dataset):
             # Extract coordinates for unpadded + unscaled image
             x1 = (bboxes[:, 1])
             y1 = (bboxes[:, 2])
-            x2 = (bboxes[:, 1] + bboxes[:, 3])
-            y2 = (bboxes[:, 2] + bboxes[:, 4])
+            w =  (bboxes[:, 3])
+            h =  (bboxes[:, 4])
 
             # 计算缩放后的宽和高
             new_w = bboxes[:,3] * scale_w
             new_h = bboxes[:,4] * scale_h
 
             # 计算缩放后的中心点
-            x1 = bboxes[:,1] + 0.5 * bboxes[:,3]
-            y1 = bboxes[:,2] + 0.5 * bboxes[:,4]
+            # x1 = bboxes[:,1] + 0.5 * bboxes[:,3]
+            # y1 = bboxes[:,2] + 0.5 * bboxes[:,4]
             new_x1 = x1 * scale_w
             new_y1 = y1 * scale_h
 
@@ -254,7 +254,7 @@ class CocoDetection(Dataset):
             targets['img_id'] = img_id
             targets['img_path'] = file_name
             targets['ori_shape'] = ori_image_size
-            targets['img_shape'] = (608, 608)
+            targets['img_shape'] = (yolov3_size, yolov3_size)
             targets['scale_factor'] = (scale_w, scale_h)
             #bboxes的格式为(category,x,y,w,h)
 
@@ -267,7 +267,7 @@ class CocoDetection(Dataset):
             targets['img_id'] = img_id
             targets['img_path'] = file_name
             targets['ori_shape'] = ori_image_size
-            targets['img_shape'] = (608, 608)
+            targets['img_shape'] = (yolov3_size, yolov3_size)
             targets['scale_factor'] =  (scale_w, scale_h)
             #bboxes的格式为(category,x,y,w,h)
 
@@ -380,6 +380,10 @@ class MyYoloV3(torch.nn.Module):
                 loss.requires_grad_(True)
                 return loss
             loss = extract_loss(loss_list)
+            
+            # loss = loss/batch_inputs.shape[0]
+            
+            print("\n loss: ", loss)
             # loss_components_dict = {"loss_total": loss_list['loss']}
             loss_components_dict = {"loss_total": loss}
             return loss_components_dict
@@ -414,6 +418,7 @@ class MyYoloV3(torch.nn.Module):
 
 
 def generate_adversarial_image(image, attack, targets):
+    # detection output
     # x_mmdetction = image.transpose(0, 2, 3, 1)
     # x_mmdetction = (x_mmdetction * 255).astype(np.uint8)  
 
@@ -428,26 +433,6 @@ def generate_adversarial_image(image, attack, targets):
     packed_targets = [pack_det_inputs.transform(t) for t in targets]
     targets_gt = [packed_target['data_samples'] for packed_target in packed_targets]
     return attack.generate(x=image, y=None,y_mmdetection=targets_gt)
-    # EMPTY_GT_PLACEHOLDER = {'data_samples': []}# 创建一个占位符对象,表示没有ground truth
-
-    # packed_targets = []
-    # targets_gt = []
-
-    # for t in targets:
-    #     if t is None:
-    #         # 如果目标是None,使用占位符
-    #         packed_target = pack_det_inputs.transform(EMPTY_GT_PLACEHOLDER)
-    #         packed_targets.append(packed_target)
-    #         targets_gt.append(packed_target['data_samples'])
-    #     else:
-    #         packed_target = pack_det_inputs.transform(t)
-    #         packed_targets.append(packed_target)
-    #         targets_gt.append(packed_target['data_samples'])
-    # try:
-    #     return attack.generate(x=image, y=None,y_mmdetection=targets_gt)
-    # except IndexError:
-    #     print("\n ########### skip this iteration ########### \n") #使用gt 总是skip导致生成图像只有4200张 先把这个try注释掉
-    #     return None  
 #################        Evasion settings        #################
 adversarial_save = True
 
@@ -457,14 +442,24 @@ eps_step = 1
 max_iter = 10
 batch_size = 16
 #################        Model Wrapper       #################
-
+# 608
 config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-608-273e_coco.py'
 checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth'
+# 416
+# config_file = '/home/jiawei/data/zjw/mmdetection/configs/yolo/yolov3_d53_8xb8-ms-416-273e_coco.py'
+# config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-416-273e_coco.py'
+# checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-416_273e_coco-2b60fcd9.pth'
+
+# 320
+# config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-320-273e_coco.py'
+# checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_320_273e_coco-421362b6.pth'
 mmdet_model = init_detector(config_file, checkpoint_file, device='cuda:0')
 model = MyYoloV3(mmdet_model) # for art wrapper
 
+yolov3_size = 608
+
 detector = PyTorchYolo(
-    model=model, model_type="yolov3", device_type="gpu", input_shape=(3, 608, 608), clip_values=(0, 255), attack_losses=("loss_total",)
+    model=model, model_type="yolov3", device_type="gpu", input_shape=(3, yolov3_size, yolov3_size), clip_values=(0, 255), attack_losses=("loss_total",)
 )
 attack = ProjectedGradientDescent(
     estimator=detector,
@@ -473,7 +468,7 @@ attack = ProjectedGradientDescent(
 
 #################        Load COCO dataset      #################
 image_transform = transforms.Compose([
-    transforms.Resize((608, 608)),
+    transforms.Resize((yolov3_size, yolov3_size)),
 ])
 dataDir = '/home/jiawei/data/zjw/datasets/coco/images/val2017'
 annFile='/home/jiawei/data/zjw/datasets/coco/annotations/instances_val2017.json'
@@ -485,21 +480,61 @@ dataset = CocoDetection(root=dataDir,annFile=annFile, transform=image_transform)
 dataloader = DataLoader(dataset=dataset, batch_size=batch_size,
                               shuffle=False, collate_fn=dataset.collate_fn)
 
-output_directory = "output_adv_images"
+output_directory = "output_adv_images_yolov3"
 os.makedirs(output_directory, exist_ok=True)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 threshold = 0.4
+import matplotlib.patches as patches
 #################        Attack Loop       #################
 for iter_num, (images, targets, image_filenames) in enumerate(dataloader):
     batch_num = iter_num
+
+    # 计算需要的行数和列数
+    num_images = images.shape[0]
+    ncols = 4  # 每行显示4张图像
+    nrows = (num_images + ncols - 1) // ncols  # 计算需要的行数
+
+    # 创建一个包含多个子图的图形网格
+    fig, axes = plt.subplots(nrows, ncols, figsize=(20, 5 * nrows))
+
+    # 遍历图像并在子图中显示
+    for i, ax in enumerate(axes.flat):
+        if i < num_images:
+            # 将PIL图像转换为numpy数组
+            img = np.array(Image.fromarray(images[i].mul(255).permute(1, 2, 0).byte().numpy()))
+            
+            # 在子图中显示图像
+            ax.imshow(img)
+            
+            # 在图像上绘制边界框和类别
+            for box, label in zip(targets[i]['gt_bboxes'], targets[i]['gt_bboxes_labels']):
+                x, y, w, h = [int(b) for b in box]
+                xmin, ymin, xmax, ymax = x, y, x+w, y+h
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='r', facecolor='none')
+                ax.add_patch(rect)
+                ax.text(xmin, ymin - 10, str(label), color='white')
+            
+            # 移除子图的坐标轴
+            ax.set_xticks([])
+            ax.set_yticks([])
+        else:
+            # 如果子图数量超过图像数量,则将其隐藏
+            ax.axis('off')
+
+    # 调整子图之间的间距
+    plt.tight_layout()
+
+    # 显示图像
+    plt.show()
+
 
     print("\n ################################ iter_num = ", iter_num, " #########################\n")
     mmdet_model = init_detector(config_file, checkpoint_file, device='cuda:0')
     model = MyYoloV3(mmdet_model) # for art wrapper
 
     detector = PyTorchYolo(
-        model=model, model_type="yolov3", device_type="gpu", input_shape=(3, 608, 608), clip_values=(0, 255), attack_losses=("loss_total",)
+        model=model, model_type="yolov3", device_type="gpu", input_shape=(3, yolov3_size, yolov3_size), clip_values=(0, 255), attack_losses=("loss_total",)
     )
     attack = ProjectedGradientDescent(
         estimator=detector,

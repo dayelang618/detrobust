@@ -25,7 +25,7 @@ import numpy as np
 from PIL import Image
 from io import BytesIO
 import torch
-from utils import yolov3_loss
+
 
 from art.estimators.object_detection.pytorch_yolo import PyTorchYolo
 from art.attacks.evasion import ProjectedGradientDescent

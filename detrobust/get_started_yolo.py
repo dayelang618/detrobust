@@ -194,7 +194,7 @@ batch_size = 1
 """
 #################        Model definition        #################
 """
-MODEL = "yolov8"  # OR yolov5 OR yolov8
+MODEL = "yolov3"  # OR yolov5 OR yolov8
 
 
 if MODEL == "yolov3":

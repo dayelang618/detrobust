@@ -226,8 +226,8 @@ class CocoDetection(Dataset):
             x2 = (bboxes[:, 1] + bboxes[:, 3])
             y2 = (bboxes[:, 2] + bboxes[:, 4])
                 # 计算缩放比例
-            scale_w = 608 / ori_image_size[1]
-            scale_h = 608 / ori_image_size[0]
+            scale_w = yolov3_size / ori_image_size[1]
+            scale_h = yolov3_size / ori_image_size[0]
             # 计算缩放后的宽和高
             new_w = bboxes[:,3] * scale_w
             new_h = bboxes[:,4] * scale_h
@@ -389,16 +389,24 @@ adversarial_save = True
 eps = 8 # 8
 eps_step = 1
 max_iter = 10
-batch_size = 20
+batch_size = 8
 #################        Model Wrapper       #################
-
+yolov3_size = 800
 config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-608-273e_coco.py'
 checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth'
+
+# config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-416-273e_coco.py'
+# checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-416_273e_coco-2b60fcd9.pth'
+
+# config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-320-273e_coco.py'
+# checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_320_273e_coco-421362b6.pth'
+
+
 mmdet_model = init_detector(config_file, checkpoint_file, device='cuda:0')
 model = MyYoloV3(mmdet_model) # for art wrapper
 
 detector = PyTorchYolo(
-    model=model, model_type="yolov3", device_type="gpu", input_shape=(3, 608, 608), clip_values=(0, 255), attack_losses=("loss_total",)
+    model=model, model_type="yolov3", device_type="gpu", input_shape=(3, yolov3_size, yolov3_size), clip_values=(0, 255), attack_losses=("loss_total",)
 )
 attack = ProjectedGradientDescent(
     estimator=detector,
@@ -407,7 +415,7 @@ attack = ProjectedGradientDescent(
 
 #################        Load COCO dataset      #################
 image_transform = transforms.Compose([
-    transforms.Resize((608, 608)),
+    transforms.Resize((yolov3_size, yolov3_size)),
 ])
 dataDir = '/home/jiawei/data/zjw/datasets/coco/images/val2017'
 annFile='/home/jiawei/data/zjw/datasets/coco/annotations/instances_val2017.json'
@@ -419,7 +427,7 @@ dataset = CocoDetection(root=dataDir,annFile=annFile, transform=image_transform)
 dataloader = DataLoader(dataset=dataset, batch_size=batch_size,
                               shuffle=False, collate_fn=dataset.collate_fn)
 
-output_directory = "output_adv_images"
+output_directory = "output_adv_images_yolov3"
 os.makedirs(output_directory, exist_ok=True)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -433,7 +441,7 @@ for iter_num, (images, targets, image_filenames) in enumerate(dataloader):
     model = MyYoloV3(mmdet_model) # for art wrapper
 
     detector = PyTorchYolo(
-        model=model, model_type="yolov3", device_type="gpu", input_shape=(3, 608, 608), clip_values=(0, 255), attack_losses=("loss_total",)
+        model=model, model_type="yolov3", device_type="gpu", input_shape=(3, yolov3_size, yolov3_size), clip_values=(0, 255), attack_losses=("loss_total",)
     )
     attack = ProjectedGradientDescent(
         estimator=detector,
