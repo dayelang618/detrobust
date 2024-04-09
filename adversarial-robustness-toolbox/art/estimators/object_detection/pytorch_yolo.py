@@ -348,7 +348,7 @@ class PyTorchYolo(ObjectDetectorMixin, PyTorchEstimator):
 
 
         # Apply preprocessing and convert to tensors
-        x_preprocessed, y_preprocessed = self._preprocess_and_convert_inputs(x=x, y=y, fit=False, no_grad=False)
+        x_preprocessed, y_preprocessed_list = self._preprocess_and_convert_inputs(x=x, y=y, fit=False, no_grad=False)
         
         # Extract height and width
         if self.channels_first:
@@ -359,13 +359,25 @@ class PyTorchYolo(ObjectDetectorMixin, PyTorchEstimator):
             width = self.input_shape[1]
 
         # Convert labels to YOLO format
-        y_preprocessed_yolo = translate_labels_x1y1x2y2_to_xcycwh(
-            labels_x1y1x2y2=y_preprocessed, height=height, width=width
-        )
+        # y_preprocessed_yolo = translate_labels_x1y1x2y2_to_xcycwh(
+        #     labels_x1y1x2y2=y_preprocessed, height=height, width=width
+        # )
 
         # Move inputs to device
         x_preprocessed = x_preprocessed.to(self.device)
-        y_preprocessed_yolo = y_preprocessed_yolo.to(self.device)
+        import torch
+        def move_to_cuda(obj):
+            if isinstance(obj, dict):
+                return {k: move_to_cuda(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [move_to_cuda(v) for v in obj]
+            elif isinstance(obj, torch.Tensor):
+                return obj.cuda()
+            else:
+                return obj
+        y_preprocessed = [move_to_cuda(temp) for temp in y_preprocessed_list]
+        
+        # y_preprocessed_yolo = y_preprocessed_yolo.to(self.device)
 
         # Set gradients again after inputs are moved to another device
         if x_preprocessed.is_leaf:
@@ -374,7 +386,8 @@ class PyTorchYolo(ObjectDetectorMixin, PyTorchEstimator):
             x_preprocessed.retain_grad()
 
         # Calculate loss components
-        loss_components = self._model(x_preprocessed, y_preprocessed_yolo, y_mmdetection=y_mmdetection)
+        # loss_components = self._model(x_preprocessed, y_preprocessed_yolo, y_mmdetection=y_mmdetection)
+        loss_components = self._model(x_preprocessed, y_preprocessed, y_mmdetection=y_mmdetection)
 
 
         return loss_components, x_preprocessed
@@ -405,7 +418,7 @@ class PyTorchYolo(ObjectDetectorMixin, PyTorchEstimator):
                 loss = loss_components[loss_name]
             else:
                 loss = loss + loss_components[loss_name]
-
+        print("####### total loss: ", loss, "  #######")
         # Clean gradients
         self._model.zero_grad()
 
