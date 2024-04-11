@@ -35,7 +35,7 @@ from art.estimators.classification.classifier import ClassifierMixin
 from art.utils import check_and_transform_label_format, projection, random_sphere, is_probability, get_labels_np_array
 
 if TYPE_CHECKING:
-    from art.utils import CLASSIFIER_LOSS_GRADIENTS_TYPE
+    from art.utils import CLASSIFIER_LOSS_GRADIENTS_TYPE, OBJECT_DETECTOR_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +58,12 @@ class AutoProjectedGradientDescent(EvasionAttack):
         "loss_type",
         "verbose",
     ]
-    _estimator_requirements = (BaseEstimator, LossGradientsMixin, ClassifierMixin)
+    _estimator_requirements = (BaseEstimator, LossGradientsMixin)
     _predefined_losses = [None, "cross_entropy", "difference_logits_ratio"]
 
     def __init__(
         self,
-        estimator: "CLASSIFIER_LOSS_GRADIENTS_TYPE",
+        estimator: Union["CLASSIFIER_LOSS_GRADIENTS_TYPE", "OBJECT_DETECTOR_TYPE"],
         norm: Union[int, float, str] = np.inf,
         eps: float = 0.3,
         eps_step: float = 0.1,
@@ -102,13 +102,13 @@ class AutoProjectedGradientDescent(EvasionAttack):
             )
 
         if loss_type is None:
-            if hasattr(estimator, "predict") and is_probability(
-                estimator.predict(x=np.ones(shape=(1, *estimator.input_shape), dtype=np.float32))
-            ):
-                raise ValueError(  # pragma: no cover
-                    "AutoProjectedGradientDescent is expecting logits as estimator output, the provided "
-                    "estimator seems to predict probabilities."
-                )
+            # if hasattr(estimator, "predict") and is_probability(
+            #     estimator.predict(x=np.ones(shape=(1, *estimator.input_shape), dtype=np.float32))
+            # ):
+            #     raise ValueError(  # pragma: no cover
+            #         "AutoProjectedGradientDescent is expecting logits as estimator output, the provided "
+            #         "estimator seems to predict probabilities."
+            #     )
 
             estimator_apgd = estimator
         else:
@@ -370,7 +370,8 @@ class AutoProjectedGradientDescent(EvasionAttack):
         self.verbose = verbose
         self._check_params()
 
-    def generate(self, x: np.ndarray, y: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
+    def generate(self, x: np.ndarray, y: Optional[np.ndarray] = None, 
+                 y_mmdetection = None, **kwargs) -> np.ndarray:
         """
         Generate adversarial samples and return them in an array.
 
@@ -386,211 +387,409 @@ class AutoProjectedGradientDescent(EvasionAttack):
         :return: An array holding the adversarial examples.
         """
         mask = kwargs.get("mask")
+        if isinstance(self.estimator, ClassifierMixin):
+            if y is not None:
+                y = check_and_transform_label_format(y, nb_classes=self.estimator.nb_classes)
 
-        if y is not None:
-            y = check_and_transform_label_format(y, nb_classes=self.estimator.nb_classes)
+            if y is None:
+                if self.targeted:
+                    raise ValueError("Target labels `y` need to be provided for a targeted attack.")
+                y = get_labels_np_array(self.estimator.predict(x, batch_size=self.batch_size)).astype(int)
 
-        if y is None:
-            if self.targeted:
-                raise ValueError("Target labels `y` need to be provided for a targeted attack.")
-            y = get_labels_np_array(self.estimator.predict(x, batch_size=self.batch_size)).astype(int)
-
-        if self.estimator.nb_classes == 2 and y.shape[1] == 1:
-            raise ValueError(
-                "This attack has not yet been tested for binary classification with a single output classifier."
-            )
-
-        x_adv = x.astype(ART_NUMPY_DTYPE)
-
-        for _ in trange(max(1, self.nb_random_init), desc="AutoPGD - restart", disable=not self.verbose):
-            # Determine correctly predicted samples
-            y_pred = self.estimator.predict(x_adv)
-            if self.targeted:
-                sample_is_robust = np.argmax(y_pred, axis=1) != np.argmax(y, axis=1)
-            elif not self.targeted:
-                sample_is_robust = np.argmax(y_pred, axis=1) == np.argmax(y, axis=1)
-
-            if np.sum(sample_is_robust) == 0:
-                break
-
-            x_robust = x_adv[sample_is_robust]
-            y_robust = y[sample_is_robust]
-            x_init = x[sample_is_robust]
-
-            n = x_robust.shape[0]
-            m = np.prod(x_robust.shape[1:]).item()
-            random_perturbation = (
-                random_sphere(n, m, self.eps, self.norm).reshape(x_robust.shape).astype(ART_NUMPY_DTYPE)
-            )
-
-            x_robust = x_robust + random_perturbation
-
-            if self.estimator.clip_values is not None:
-                clip_min, clip_max = self.estimator.clip_values
-                x_robust = np.clip(x_robust, clip_min, clip_max)
-
-            perturbation = projection(x_robust - x_init, self.eps, self.norm)
-            x_robust = x_init + perturbation
-
-            # Compute perturbation with implicit batching
-            for batch_id in trange(
-                int(np.ceil(x_robust.shape[0] / float(self.batch_size))),
-                desc="AutoPGD - batch",
-                leave=False,
-                disable=not self.verbose,
-            ):
-                batch_index_1, batch_index_2 = batch_id * self.batch_size, (batch_id + 1) * self.batch_size
-                x_k = x_robust[batch_index_1:batch_index_2].astype(ART_NUMPY_DTYPE)
-                x_init_batch = x_init[batch_index_1:batch_index_2].astype(ART_NUMPY_DTYPE)
-                y_batch = y_robust[batch_index_1:batch_index_2]
-
-                p_0 = 0
-                p_1 = 0.22
-                var_w = [p_0, p_1]
-
-                while True:
-                    p_j_p_1 = var_w[-1] + max(var_w[-1] - var_w[-2] - 0.03, 0.06)
-                    if p_j_p_1 > 1:
-                        break
-                    var_w.append(p_j_p_1)
-
-                var_w = [math.ceil(p * self.max_iter) for p in var_w]
-
-                # modification for image-wise stepsize update
-                _batch_size = x_k.shape[0]
-                eta = np.full((_batch_size,) + (1,) * len(self.estimator.input_shape), self.eps_step).astype(
-                    ART_NUMPY_DTYPE
+            if self.estimator.nb_classes == 2 and y.shape[1] == 1:
+                raise ValueError(
+                    "This attack has not yet been tested for binary classification with a single output classifier."
                 )
-                self.count_condition_1 = np.zeros(shape=(_batch_size,))
 
-                for k_iter in trange(self.max_iter, desc="AutoPGD - iteration", leave=False, disable=not self.verbose):
+            x_adv = x.astype(ART_NUMPY_DTYPE)
 
-                    # Get perturbation, use small scalar to avoid division by 0
-                    tol = 10e-8
+            for _ in trange(max(1, self.nb_random_init), desc="AutoPGD - restart", disable=not self.verbose):
+                # Determine correctly predicted samples
+                y_pred = self.estimator.predict(x_adv)
+                if self.targeted:
+                    sample_is_robust = np.argmax(y_pred, axis=1) != np.argmax(y, axis=1)
+                elif not self.targeted:
+                    sample_is_robust = np.argmax(y_pred, axis=1) == np.argmax(y, axis=1)
 
-                    # Get gradient wrt loss; invert it if attack is targeted
-                    grad = self.estimator.loss_gradient(x_k, y_batch) * (1 - 2 * int(self.targeted))
+                if np.sum(sample_is_robust) == 0:
+                    break
 
-                    # Apply norm bound
-                    if self.norm in [np.inf, "inf"]:
-                        grad = np.sign(grad)
-                    elif self.norm == 1:
-                        ind = tuple(range(1, len(x_k.shape)))
-                        grad = grad / (np.sum(np.abs(grad), axis=ind, keepdims=True) + tol)
-                    elif self.norm == 2:
-                        ind = tuple(range(1, len(x_k.shape)))
-                        grad = grad / (np.sqrt(np.sum(np.square(grad), axis=ind, keepdims=True)) + tol)
-                    assert x_k.shape == grad.shape
+                x_robust = x_adv[sample_is_robust]
+                y_robust = y[sample_is_robust]
+                x_init = x[sample_is_robust]
 
-                    perturbation = grad
+                n = x_robust.shape[0]
+                m = np.prod(x_robust.shape[1:]).item()
+                random_perturbation = (
+                    random_sphere(n, m, self.eps, self.norm).reshape(x_robust.shape).astype(ART_NUMPY_DTYPE)
+                )
 
-                    if mask is not None:
-                        perturbation = perturbation * (mask.astype(ART_NUMPY_DTYPE))
+                x_robust = x_robust + random_perturbation
 
-                    # Apply perturbation and clip
-                    z_k_p_1 = x_k + eta * perturbation
+                if self.estimator.clip_values is not None:
+                    clip_min, clip_max = self.estimator.clip_values
+                    x_robust = np.clip(x_robust, clip_min, clip_max)
 
-                    if self.estimator.clip_values is not None:
-                        clip_min, clip_max = self.estimator.clip_values
-                        z_k_p_1 = np.clip(z_k_p_1, clip_min, clip_max)
+                perturbation = projection(x_robust - x_init, self.eps, self.norm)
+                x_robust = x_init + perturbation
 
-                    if k_iter == 0:
-                        x_1 = z_k_p_1
-                        perturbation = projection(x_1 - x_init_batch, self.eps, self.norm)
-                        x_1 = x_init_batch + perturbation
+                # Compute perturbation with implicit batching
+                for batch_id in trange(
+                    int(np.ceil(x_robust.shape[0] / float(self.batch_size))),
+                    desc="AutoPGD - batch",
+                    leave=False,
+                    disable=not self.verbose,
+                ):
+                    batch_index_1, batch_index_2 = batch_id * self.batch_size, (batch_id + 1) * self.batch_size
+                    x_k = x_robust[batch_index_1:batch_index_2].astype(ART_NUMPY_DTYPE)
+                    x_init_batch = x_init[batch_index_1:batch_index_2].astype(ART_NUMPY_DTYPE)
+                    y_batch = y_robust[batch_index_1:batch_index_2]
 
-                        f_0 = self.estimator.compute_loss(x=x_k, y=y_batch, reduction="none")
-                        f_1 = self.estimator.compute_loss(x=x_1, y=y_batch, reduction="none")
+                    p_0 = 0
+                    p_1 = 0.22
+                    var_w = [p_0, p_1]
 
-                        # modification for image-wise stepsize update
-                        self.eta_w_j_m_1 = eta.copy()
-                        self.f_max_w_j_m_1 = f_0.copy()
-                        self.f_max = f_0.copy()
-                        self.x_max = x_k.copy()
-                        self.x_max_m_1 = x_init_batch.copy()
+                    while True:
+                        p_j_p_1 = var_w[-1] + max(var_w[-1] - var_w[-2] - 0.03, 0.06)
+                        if p_j_p_1 > 1:
+                            break
+                        var_w.append(p_j_p_1)
 
-                        f1_ge_f0 = f_1 >= f_0
-                        f_1_tmp = f_1[f1_ge_f0].copy()
-                        self.f_max[f1_ge_f0] = f_1_tmp.copy()
-                        x_1_tmp = x_1[f1_ge_f0].copy()
-                        self.x_max[f1_ge_f0] = x_1_tmp.copy()
-                        self.count_condition_1[f1_ge_f0] += 1
-                        # Settings for next iteration k
-                        x_k_m_1 = x_k.copy()
-                        x_k = x_1.copy()
+                    var_w = [math.ceil(p * self.max_iter) for p in var_w]
 
-                    else:
-                        perturbation = projection(z_k_p_1 - x_init_batch, self.eps, self.norm)
-                        z_k_p_1 = x_init_batch + perturbation
+                    # modification for image-wise stepsize update
+                    _batch_size = x_k.shape[0]
+                    eta = np.full((_batch_size,) + (1,) * len(self.estimator.input_shape), self.eps_step).astype(
+                        ART_NUMPY_DTYPE
+                    )
+                    self.count_condition_1 = np.zeros(shape=(_batch_size,))
 
-                        alpha = 0.75
+                    for k_iter in trange(self.max_iter, desc="AutoPGD - iteration", leave=False, disable=not self.verbose):
 
-                        x_k_p_1 = x_k + alpha * (z_k_p_1 - x_k) + (1 - alpha) * (x_k - x_k_m_1)
+                        # Get perturbation, use small scalar to avoid division by 0
+                        tol = 10e-8
+
+                        # Get gradient wrt loss; invert it if attack is targeted
+                        grad = self.estimator.loss_gradient(x_k, y_batch) * (1 - 2 * int(self.targeted))
+
+                        # Apply norm bound
+                        if self.norm in [np.inf, "inf"]:
+                            grad = np.sign(grad)
+                        elif self.norm == 1:
+                            ind = tuple(range(1, len(x_k.shape)))
+                            grad = grad / (np.sum(np.abs(grad), axis=ind, keepdims=True) + tol)
+                        elif self.norm == 2:
+                            ind = tuple(range(1, len(x_k.shape)))
+                            grad = grad / (np.sqrt(np.sum(np.square(grad), axis=ind, keepdims=True)) + tol)
+                        assert x_k.shape == grad.shape
+
+                        perturbation = grad
+
+                        if mask is not None:
+                            perturbation = perturbation * (mask.astype(ART_NUMPY_DTYPE))
+
+                        # Apply perturbation and clip
+                        z_k_p_1 = x_k + eta * perturbation
 
                         if self.estimator.clip_values is not None:
                             clip_min, clip_max = self.estimator.clip_values
-                            x_k_p_1 = np.clip(x_k_p_1, clip_min, clip_max)
+                            z_k_p_1 = np.clip(z_k_p_1, clip_min, clip_max)
 
-                        perturbation = projection(x_k_p_1 - x_init_batch, self.eps, self.norm)
-                        x_k_p_1 = x_init_batch + perturbation
+                        if k_iter == 0:
+                            x_1 = z_k_p_1
+                            perturbation = projection(x_1 - x_init_batch, self.eps, self.norm)
+                            x_1 = x_init_batch + perturbation
 
-                        f_k_p_1 = self.estimator.compute_loss(x=x_k_p_1, y=y_batch, reduction="none")
+                            f_0 = self.estimator.compute_loss(x=x_k, y=y_batch, reduction="none")
+                            f_1 = self.estimator.compute_loss(x=x_1, y=y_batch, reduction="none")
 
-                        if (f_k_p_1 == 0.0).all():  # modification for image-wise stepsize update
-                            x_k = x_k_p_1.copy()
-                            break
-
-                        if self.targeted:
-                            fk_ge_fm = f_k_p_1 < self.f_max  # assume the loss function is cross-entropy
-                        else:
-                            fk_ge_fm = f_k_p_1 > self.f_max
-
-                        self.count_condition_1[fk_ge_fm] += 1
-                        # update the best points
-                        x_k_p_1_tmp = x_k_p_1[fk_ge_fm].copy()
-                        self.x_max[fk_ge_fm] = x_k_p_1_tmp.copy()
-                        x_k_tmp = x_k[fk_ge_fm].copy()
-                        self.x_max_m_1[fk_ge_fm] = x_k_tmp.copy()
-                        f_k_p_1_tmp = f_k_p_1[fk_ge_fm].copy()
-                        self.f_max[fk_ge_fm] = f_k_p_1_tmp.copy()
-
-                        # update the search points
-                        x_k_m_1 = x_k.copy()
-                        x_k = x_k_p_1.copy()
-
-                        if k_iter in var_w:
-
-                            rho = 0.75
-
-                            condition_1 = self.count_condition_1 < rho * (k_iter - var_w[var_w.index(k_iter) - 1])
-                            condition_2 = np.logical_and(
-                                (self.eta_w_j_m_1 == eta).squeeze(), self.f_max_w_j_m_1 == self.f_max
-                            )
-                            condition = np.logical_or(condition_1, condition_2)
-
-                            # halve the stepsize if the condition is satisfied
-                            eta[condition] /= 2
-                            # move to the best point
-                            x_max_tmp = self.x_max[condition].copy()
-                            x_k[condition] = x_max_tmp.copy()
-                            x_max_m_1_tmp = self.x_max_m_1[condition].copy()
-                            x_k_m_1[condition] = x_max_m_1_tmp.copy()
-
-                            self.count_condition_1[:] = 0
+                            # modification for image-wise stepsize update
                             self.eta_w_j_m_1 = eta.copy()
-                            self.f_max_w_j_m_1 = self.f_max.copy()
+                            self.f_max_w_j_m_1 = f_0.copy()
+                            self.f_max = f_0.copy()
+                            self.x_max = x_k.copy()
+                            self.x_max_m_1 = x_init_batch.copy()
 
-                y_pred_adv_k = self.estimator.predict(x_k)
-                if self.targeted:
-                    sample_is_not_robust_k = np.invert(np.argmax(y_pred_adv_k, axis=1) != np.argmax(y_batch, axis=1))
-                elif not self.targeted:
-                    sample_is_not_robust_k = np.invert(np.argmax(y_pred_adv_k, axis=1) == np.argmax(y_batch, axis=1))
+                            f1_ge_f0 = f_1 >= f_0
+                            f_1_tmp = f_1[f1_ge_f0].copy()
+                            self.f_max[f1_ge_f0] = f_1_tmp.copy()
+                            x_1_tmp = x_1[f1_ge_f0].copy()
+                            self.x_max[f1_ge_f0] = x_1_tmp.copy()
+                            self.count_condition_1[f1_ge_f0] += 1
+                            # Settings for next iteration k
+                            x_k_m_1 = x_k.copy()
+                            x_k = x_1.copy()
 
-                x_robust[batch_index_1:batch_index_2][sample_is_not_robust_k] = x_k[sample_is_not_robust_k]
+                        else:
+                            perturbation = projection(z_k_p_1 - x_init_batch, self.eps, self.norm)
+                            z_k_p_1 = x_init_batch + perturbation
 
-            x_adv[sample_is_robust] = x_robust
+                            alpha = 0.75
 
-        return x_adv
+                            x_k_p_1 = x_k + alpha * (z_k_p_1 - x_k) + (1 - alpha) * (x_k - x_k_m_1)
+
+                            if self.estimator.clip_values is not None:
+                                clip_min, clip_max = self.estimator.clip_values
+                                x_k_p_1 = np.clip(x_k_p_1, clip_min, clip_max)
+
+                            perturbation = projection(x_k_p_1 - x_init_batch, self.eps, self.norm)
+                            x_k_p_1 = x_init_batch + perturbation
+
+                            f_k_p_1 = self.estimator.compute_loss(x=x_k_p_1, y=y_batch, reduction="none")
+
+                            if (f_k_p_1 == 0.0).all():  # modification for image-wise stepsize update
+                                x_k = x_k_p_1.copy()
+                                break
+
+                            if self.targeted:
+                                fk_ge_fm = f_k_p_1 < self.f_max  # assume the loss function is cross-entropy
+                            else:
+                                fk_ge_fm = f_k_p_1 > self.f_max
+
+                            self.count_condition_1[fk_ge_fm] += 1
+                            # update the best points
+                            x_k_p_1_tmp = x_k_p_1[fk_ge_fm].copy()
+                            self.x_max[fk_ge_fm] = x_k_p_1_tmp.copy()
+                            x_k_tmp = x_k[fk_ge_fm].copy()
+                            self.x_max_m_1[fk_ge_fm] = x_k_tmp.copy()
+                            f_k_p_1_tmp = f_k_p_1[fk_ge_fm].copy()
+                            self.f_max[fk_ge_fm] = f_k_p_1_tmp.copy()
+
+                            # update the search points
+                            x_k_m_1 = x_k.copy()
+                            x_k = x_k_p_1.copy()
+
+                            if k_iter in var_w:
+
+                                rho = 0.75
+
+                                condition_1 = self.count_condition_1 < rho * (k_iter - var_w[var_w.index(k_iter) - 1])
+                                condition_2 = np.logical_and(
+                                    (self.eta_w_j_m_1 == eta).squeeze(), self.f_max_w_j_m_1 == self.f_max
+                                )
+                                condition = np.logical_or(condition_1, condition_2)
+
+                                # halve the stepsize if the condition is satisfied
+                                eta[condition] /= 2
+                                # move to the best point
+                                x_max_tmp = self.x_max[condition].copy()
+                                x_k[condition] = x_max_tmp.copy()
+                                x_max_m_1_tmp = self.x_max_m_1[condition].copy()
+                                x_k_m_1[condition] = x_max_m_1_tmp.copy()
+
+                                self.count_condition_1[:] = 0
+                                self.eta_w_j_m_1 = eta.copy()
+                                self.f_max_w_j_m_1 = self.f_max.copy()
+
+                    y_pred_adv_k = self.estimator.predict(x_k)
+                    if self.targeted:
+                        sample_is_not_robust_k = np.invert(np.argmax(y_pred_adv_k, axis=1) != np.argmax(y_batch, axis=1))
+                    elif not self.targeted:
+                        sample_is_not_robust_k = np.invert(np.argmax(y_pred_adv_k, axis=1) == np.argmax(y_batch, axis=1))
+
+                    x_robust[batch_index_1:batch_index_2][sample_is_not_robust_k] = x_k[sample_is_not_robust_k]
+
+                x_adv[sample_is_robust] = x_robust
+
+            return x_adv
+        else:
+
+            x_adv = x.astype(ART_NUMPY_DTYPE)
+
+            for _ in trange(max(1, self.nb_random_init), desc="AutoPGD - restart", disable=not self.verbose):
+                # Determine correctly predicted samples
+                y_pred = self.estimator.predict(x_adv, batch_size=self.batch_size)
+                # if self.targeted:
+                #     sample_is_robust = np.argmax(y_pred, axis=1) != np.argmax(y, axis=1)
+                # elif not self.targeted:
+                #     sample_is_robust = np.argmax(y_pred, axis=1) == np.argmax(y, axis=1)
+
+                # if np.sum(sample_is_robust) == 0:
+                #     break
+
+                # x_robust = x_adv[sample_is_robust]
+                # y_robust = y[sample_is_robust]
+                # x_init = x[sample_is_robust]
+                
+                # 看论文代码没有sample_is_robust这个操作 直接屏蔽
+                x_robust = x_adv
+                y_robust = y_pred
+                x_init = x
+                
+                n = x_robust.shape[0]
+                m = np.prod(x_robust.shape[1:]).item()
+                random_perturbation = (
+                    random_sphere(n, m, self.eps, self.norm).reshape(x_robust.shape).astype(ART_NUMPY_DTYPE)
+                )
+
+                x_robust = x_robust + random_perturbation
+
+                if self.estimator.clip_values is not None:
+                    clip_min, clip_max = self.estimator.clip_values
+                    x_robust = np.clip(x_robust, clip_min, clip_max)
+
+                perturbation = projection(x_robust - x_init, self.eps, self.norm)
+                x_robust = x_init + perturbation
+
+                # Compute perturbation with implicit batching
+                for batch_id in trange(
+                    int(np.ceil(x_robust.shape[0] / float(self.batch_size))),
+                    desc="AutoPGD - batch",
+                    leave=False,
+                    disable=not self.verbose,
+                ):
+                    batch_index_1, batch_index_2 = batch_id * self.batch_size, (batch_id + 1) * self.batch_size
+                    x_k = x_robust[batch_index_1:batch_index_2].astype(ART_NUMPY_DTYPE)
+                    x_init_batch = x_init[batch_index_1:batch_index_2].astype(ART_NUMPY_DTYPE)
+                    y_batch = y_robust[batch_index_1:batch_index_2]
+
+                    p_0 = 0
+                    p_1 = 0.22
+                    var_w = [p_0, p_1]
+
+                    while True:
+                        p_j_p_1 = var_w[-1] + max(var_w[-1] - var_w[-2] - 0.03, 0.06)
+                        if p_j_p_1 > 1:
+                            break
+                        var_w.append(p_j_p_1)
+
+                    var_w = [math.ceil(p * self.max_iter) for p in var_w]
+
+                    # modification for image-wise stepsize update
+                    _batch_size = x_k.shape[0]
+                    eta = np.full((_batch_size,) + (1,) * len(self.estimator.input_shape), self.eps_step).astype(
+                        ART_NUMPY_DTYPE
+                    )
+                    self.count_condition_1 = np.zeros(shape=(_batch_size,))
+
+                    for k_iter in trange(self.max_iter, desc="AutoPGD - iteration", leave=False, disable=not self.verbose):
+
+                        # Get perturbation, use small scalar to avoid division by 0
+                        tol = 10e-8
+
+                        # Get gradient wrt loss; invert it if attack is targeted
+                        grad = self.estimator.loss_gradient(x_k, y_batch, y_mmdetection=y_mmdetection) * (1 - 2 * int(self.targeted))
+
+                        # Apply norm bound
+                        if self.norm in [np.inf, "inf"]:
+                            grad = np.sign(grad)
+                        elif self.norm == 1:
+                            ind = tuple(range(1, len(x_k.shape)))
+                            grad = grad / (np.sum(np.abs(grad), axis=ind, keepdims=True) + tol)
+                        elif self.norm == 2:
+                            ind = tuple(range(1, len(x_k.shape)))
+                            grad = grad / (np.sqrt(np.sum(np.square(grad), axis=ind, keepdims=True)) + tol)
+                        assert x_k.shape == grad.shape
+
+                        perturbation = grad
+
+                        if mask is not None:
+                            perturbation = perturbation * (mask.astype(ART_NUMPY_DTYPE))
+
+                        # Apply perturbation and clip
+                        z_k_p_1 = x_k + eta * perturbation
+
+                        if self.estimator.clip_values is not None:
+                            clip_min, clip_max = self.estimator.clip_values
+                            z_k_p_1 = np.clip(z_k_p_1, clip_min, clip_max)
+
+                        if k_iter == 0:
+                            x_1 = z_k_p_1
+                            perturbation = projection(x_1 - x_init_batch, self.eps, self.norm)
+                            x_1 = x_init_batch + perturbation
+
+                            f_0 = self.estimator.compute_loss(x=x_k, y=y_batch, y_mmdetection=y_mmdetection)
+                            f_1 = self.estimator.compute_loss(x=x_1, y=y_batch, y_mmdetection=y_mmdetection)
+
+                            # modification for image-wise stepsize update
+                            self.eta_w_j_m_1 = eta.copy()
+                            self.f_max_w_j_m_1 = f_0.copy()
+                            self.f_max = f_0.copy()
+                            self.x_max = x_k.copy()
+                            self.x_max_m_1 = x_init_batch.copy()
+
+                            f1_ge_f0 = f_1 >= f_0
+                            f_1_tmp = f_1[f1_ge_f0].copy()
+                            self.f_max[f1_ge_f0] = f_1_tmp.copy()
+                            x_1_tmp = x_1[f1_ge_f0].copy()
+                            self.x_max[f1_ge_f0] = x_1_tmp.copy()
+                            self.count_condition_1[f1_ge_f0] += 1
+                            # Settings for next iteration k
+                            x_k_m_1 = x_k.copy()
+                            x_k = x_1.copy()
+
+                        else:
+                            perturbation = projection(z_k_p_1 - x_init_batch, self.eps, self.norm)
+                            z_k_p_1 = x_init_batch + perturbation
+
+                            alpha = 0.75
+
+                            x_k_p_1 = x_k + alpha * (z_k_p_1 - x_k) + (1 - alpha) * (x_k - x_k_m_1)
+
+                            if self.estimator.clip_values is not None:
+                                clip_min, clip_max = self.estimator.clip_values
+                                x_k_p_1 = np.clip(x_k_p_1, clip_min, clip_max)
+
+                            perturbation = projection(x_k_p_1 - x_init_batch, self.eps, self.norm)
+                            x_k_p_1 = x_init_batch + perturbation
+
+                            f_k_p_1 = self.estimator.compute_loss(x=x_k_p_1, y=y_batch, y_mmdetection=y_mmdetection)
+
+                            if (f_k_p_1 == 0.0).all():  # modification for image-wise stepsize update
+                                x_k = x_k_p_1.copy()
+                                break
+
+                            if self.targeted:
+                                fk_ge_fm = f_k_p_1 < self.f_max  # assume the loss function is cross-entropy
+                            else:
+                                fk_ge_fm = f_k_p_1 > self.f_max
+
+                            self.count_condition_1[fk_ge_fm] += 1
+                            # update the best points
+                            x_k_p_1_tmp = x_k_p_1[fk_ge_fm].copy()
+                            self.x_max[fk_ge_fm] = x_k_p_1_tmp.copy()
+                            x_k_tmp = x_k[fk_ge_fm].copy()
+                            self.x_max_m_1[fk_ge_fm] = x_k_tmp.copy()
+                            f_k_p_1_tmp = f_k_p_1[fk_ge_fm].copy()
+                            self.f_max[fk_ge_fm] = f_k_p_1_tmp.copy()
+
+                            # update the search points
+                            x_k_m_1 = x_k.copy()
+                            x_k = x_k_p_1.copy()
+
+                            if k_iter in var_w:
+
+                                rho = 0.75
+
+                                condition_1 = self.count_condition_1 < rho * (k_iter - var_w[var_w.index(k_iter) - 1])
+                                condition_2 = np.logical_and(
+                                    (self.eta_w_j_m_1 == eta).squeeze(), self.f_max_w_j_m_1 == self.f_max
+                                )
+                                condition = np.logical_or(condition_1, condition_2)
+
+                                # halve the stepsize if the condition is satisfied
+                                eta[condition] /= 2
+                                # move to the best point
+                                x_max_tmp = self.x_max[condition].copy()
+                                x_k[condition] = x_max_tmp.copy()
+                                x_max_m_1_tmp = self.x_max_m_1[condition].copy()
+                                x_k_m_1[condition] = x_max_m_1_tmp.copy()
+
+                                self.count_condition_1[:] = 0
+                                self.eta_w_j_m_1 = eta.copy()
+                                self.f_max_w_j_m_1 = self.f_max.copy()
+
+                    # y_pred_adv_k = self.estimator.predict(x_k)
+                    # if self.targeted:
+                    #     sample_is_not_robust_k = np.invert(np.argmax(y_pred_adv_k, axis=1) != np.argmax(y_batch, axis=1))
+                    # elif not self.targeted:
+                    #     sample_is_not_robust_k = np.invert(np.argmax(y_pred_adv_k, axis=1) == np.argmax(y_batch, axis=1))
+
+                    x_robust[batch_index_1:batch_index_2] = x_k
+
+                x_adv = x_robust
+
+            return x_adv       
 
     def _check_params(self) -> None:
         if self.norm not in [1, 2, np.inf, "inf"]:

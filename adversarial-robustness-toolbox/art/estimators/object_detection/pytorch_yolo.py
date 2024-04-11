@@ -671,7 +671,8 @@ class PyTorchYolo(ObjectDetectorMixin, PyTorchEstimator):
         return output
 
     def compute_loss(  # type: ignore
-        self, x: Union[np.ndarray, "torch.Tensor"], y: List[Dict[str, Union[np.ndarray, "torch.Tensor"]]], **kwargs
+        self, x: Union[np.ndarray, "torch.Tensor"], y: List[Dict[str, Union[np.ndarray, "torch.Tensor"]]],
+        y_mmdetection=None, **kwargs
     ) -> Union[np.ndarray, "torch.Tensor"]:
         """
         Compute the loss of the neural network for samples `x`.
@@ -686,7 +687,7 @@ class PyTorchYolo(ObjectDetectorMixin, PyTorchEstimator):
         """
         import torch
 
-        loss_components, _ = self._get_losses(x=x, y=y)
+        loss_components, _ = self._get_losses(x=x, y=y, y_mmdetection=y_mmdetection)
 
         # Compute the gradient and return
         loss = None
