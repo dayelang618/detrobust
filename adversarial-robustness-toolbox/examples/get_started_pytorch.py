@@ -10,6 +10,7 @@ import torch.optim as optim
 import numpy as np
 
 from art.attacks.evasion import FastGradientMethod
+from art.attacks.evasion.square_attack import SquareAttack
 from art.estimators.classification import PyTorchClassifier
 from art.utils import load_mnist
 from art.attacks.evasion import CarliniL2Method
@@ -45,6 +46,12 @@ class Net(nn.Module):
 x_train = np.transpose(x_train, (0, 3, 1, 2)).astype(np.float32)
 x_test = np.transpose(x_test, (0, 3, 1, 2)).astype(np.float32)
 
+# print(x_test.shape)
+# print(y_test.shape)
+x_test = x_test[:10,...]
+y_test = y_test[:10,...]
+print(x_test.shape)
+print(y_test.shape)
 # Step 2: Create the model
 
 model = Net()
@@ -78,7 +85,8 @@ print("Accuracy on benign test examples: {}%".format(accuracy * 100))
 # Step 6: Generate adversarial test examples
 attack = FastGradientMethod(estimator=classifier, eps=0.2)
 attack2 = CarliniL2Method(estimator=classifier)
-x_test_adv = attack2.generate(x=x_test, classifier_mixin=True)
+attack3 = SquareAttack(estimator=classifier, norm=np.inf, max_iter=5000, eps=0.3, p_init=0.8, nb_restarts=5)
+x_test_adv = attack3.generate(x=x_test, classifier_mixin=True)
 
 # Step 7: Evaluate the ART classifier on adversarial test examples
 

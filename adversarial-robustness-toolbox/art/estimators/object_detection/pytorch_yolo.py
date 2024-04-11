@@ -688,7 +688,7 @@ class PyTorchYolo(ObjectDetectorMixin, PyTorchEstimator):
         import torch
 
         loss_components, _ = self._get_losses(x=x, y=y, y_mmdetection=y_mmdetection)
-
+        # print("loss_components ", loss_components)
         # Compute the gradient and return
         loss = None
         for loss_name in self.attack_losses:

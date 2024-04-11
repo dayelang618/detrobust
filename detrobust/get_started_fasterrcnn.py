@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 from art.estimators.object_detection import PyTorchFasterRCNN
 from art.attacks.evasion import ProjectedGradientDescent
 from art.attacks.evasion import CarliniLInfMethod, CarliniL2Method # CW, Carlini & Wagner (C&W)
+from art.attacks.evasion.auto_projected_gradient_descent import AutoProjectedGradientDescent
+from art.attacks.evasion.deepfool import DeepFool
+from art.attacks.evasion.square_attack import SquareAttackDetection
 from art.attacks.evasion import AutoAttack 
 from art.attacks.evasion import SimBA #Simple Black-box Adversarial
 import torchvision
@@ -346,7 +349,8 @@ def main():
     # Create ART object detector
     frcnn = PyTorchFasterRCNN(
         model=model, clip_values=(0, 255), attack_losses=[ "none_detector_loss"],
-        attack_method='CW'
+        attack_method='CW',
+        input_shape = (3, 2139, 3500),
     )
     # frcnn = PyTorchFasterRCNN(
     #     clip_values=(0, 255), attack_losses=["loss_classifier", "loss_box_reg", "loss_objectness", "loss_rpn_box_reg"]
@@ -391,12 +395,13 @@ def main():
 
     # Create and run attack
     print("\n Create and run attack ...")
-    eps = 4
+    eps = 8
     attack = ProjectedGradientDescent(estimator=frcnn, eps=eps, eps_step=2, max_iter=10)
     attack2 = CarliniLInfMethod(estimator=frcnn)
     # attack3 = CarliniL2Method(estimator=frcnn, max_iter=5, max_halving=2, max_doubling=2)
     attack3 = CarliniL2Method(estimator=frcnn)
-    image_adv = attack3.generate(x=image, y=None)
+    attack4 = SquareAttackDetection(estimator=frcnn, norm=np.inf, max_iter=5000, eps=eps, p_init=0.8, nb_restarts=5)
+    image_adv = attack4.generate(x=image, y=None)
     # image_adv = attack.generate(x=image, y=None)
 
     print("\nThe attack budget eps is {}".format(eps))

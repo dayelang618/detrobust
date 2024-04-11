@@ -711,9 +711,14 @@ class AutoProjectedGradientDescent(EvasionAttack):
                             f1_ge_f0 = f_1 >= f_0
                             f_1_tmp = f_1[f1_ge_f0].copy()
                             self.f_max[f1_ge_f0] = f_1_tmp.copy()
-                            x_1_tmp = x_1[f1_ge_f0].copy()
-                            self.x_max[f1_ge_f0] = x_1_tmp.copy()
-                            self.count_condition_1[f1_ge_f0] += 1
+                            # x_1_tmp = x_1[f1_ge_f0].copy()
+                            
+                            f1_ge_f0_repeated = np.repeat(f1_ge_f0, self.batch_size, axis=0)
+                            x_1_tmp = x_1[f1_ge_f0_repeated,:,:,:].copy()
+                            
+                                
+                            # self.count_condition_1[f1_ge_f0] += 1
+                            self.count_condition_1[f1_ge_f0_repeated] += 1
                             # Settings for next iteration k
                             x_k_m_1 = x_k.copy()
                             x_k = x_1.copy()
@@ -744,14 +749,31 @@ class AutoProjectedGradientDescent(EvasionAttack):
                             else:
                                 fk_ge_fm = f_k_p_1 > self.f_max
 
-                            self.count_condition_1[fk_ge_fm] += 1
+                            fk_ge_fm_repeated = np.repeat(fk_ge_fm, self.batch_size, axis=0)
+
+                            
+                            self.count_condition_1[fk_ge_fm_repeated] += 1
+                            
+                            
                             # update the best points
-                            x_k_p_1_tmp = x_k_p_1[fk_ge_fm].copy()
-                            self.x_max[fk_ge_fm] = x_k_p_1_tmp.copy()
-                            x_k_tmp = x_k[fk_ge_fm].copy()
-                            self.x_max_m_1[fk_ge_fm] = x_k_tmp.copy()
+                            x_k_p_1_tmp = x_k_p_1[fk_ge_fm_repeated].copy()                    
+
+                            self.x_max[fk_ge_fm_repeated] = x_k_p_1_tmp.copy()
+                            x_k_tmp = x_k[fk_ge_fm_repeated].copy()
+                            self.x_max_m_1[fk_ge_fm_repeated] = x_k_tmp.copy()
                             f_k_p_1_tmp = f_k_p_1[fk_ge_fm].copy()
-                            self.f_max[fk_ge_fm] = f_k_p_1_tmp.copy()
+                            self.f_max[fk_ge_fm] = f_k_p_1_tmp.copy()                           
+                            
+                            
+
+                            
+                            # self.count_condition_1[fk_ge_fm] += 1
+                            # x_k_p_1_tmp = x_k_p_1[fk_ge_fm].copy()
+                            # self.x_max[fk_ge_fm] = x_k_p_1_tmp.copy()
+                            # x_k_tmp = x_k[fk_ge_fm].copy()
+                            # self.x_max_m_1[fk_ge_fm] = x_k_tmp.copy()
+                            # f_k_p_1_tmp = f_k_p_1[fk_ge_fm].copy()
+                            # self.f_max[fk_ge_fm] = f_k_p_1_tmp.copy()
 
                             # update the search points
                             x_k_m_1 = x_k.copy()

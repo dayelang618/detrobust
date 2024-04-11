@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from art.estimators.object_detection.pytorch_yolo import PyTorchYolo
 from art.attacks.evasion import ProjectedGradientDescent
-
+from art.attacks.evasion.auto_projected_gradient_descent import AutoProjectedGradientDescent
 
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
@@ -304,6 +304,7 @@ class MyYoloV3(torch.nn.Module):
             targets = [targets]
             targets.gt_instances = targets.pred_instances     
 
+
         
         loss_list = []
 
@@ -376,24 +377,26 @@ def generate_adversarial_image(image, attack):
     else:
         x_mmdetction = [temp for temp in x_mmdetction]
     y_mmdetection = inference_detector(mmdet_model, x_mmdetction)
-
-    try:
-        return attack.generate(x=image, y=None,y_mmdetection=y_mmdetection)
-    except IndexError:
-        print("\n ########### skip this iteration ########### \n")
-        return None  
+    return attack.generate(x=image, y=None,y_mmdetection=y_mmdetection)
+    # try:
+    #     return attack.generate(x=image, y=None,y_mmdetection=y_mmdetection)
+    # except IndexError:
+    #     print("\n ########### skip this iteration ########### \n")
+    #     return None  
 #################        Evasion settings        #################
 adversarial_save = True
 
 
 eps = 8 # 8
 eps_step = 1
-max_iter = 10
+max_iter = 100 #100 for APGD, 10 for PGD
 batch_size = 8
 #################        Model Wrapper       #################
-yolov3_size = 800
+yolov3_size = 608
 config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-608-273e_coco.py'
 checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth'
+attack_method = 'APGD'
+# attack_method = 'PGD'
 
 # config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-416-273e_coco.py'
 # checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-416_273e_coco-2b60fcd9.pth'
@@ -408,15 +411,24 @@ model = MyYoloV3(mmdet_model) # for art wrapper
 detector = PyTorchYolo(
     model=model, model_type="yolov3", device_type="gpu", input_shape=(3, yolov3_size, yolov3_size), clip_values=(0, 255), attack_losses=("loss_total",)
 )
-attack = ProjectedGradientDescent(
-    estimator=detector,
-    eps=eps, eps_step=eps_step, max_iter=max_iter, 
-    batch_size=batch_size)
+if attack_method == 'PGD':
+    print("\n attack method is PGD...\n")
+    attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+elif attack_method == 'APGD':
+     print("\n attack method is APGD...\n")
+     attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+                                           max_iter=max_iter, targeted=False, nb_random_init=1,
+                                           batch_size=batch_size, loss_type=None, )
+else:
+    print("Not implemented")
 
 #################        Load COCO dataset      #################
 image_transform = transforms.Compose([
     transforms.Resize((yolov3_size, yolov3_size)),
 ])
+
+
+
 dataDir = '/home/jiawei/data/zjw/datasets/coco/images/val2017'
 annFile='/home/jiawei/data/zjw/datasets/coco/annotations/instances_val2017.json'
 # dataDir = '/home/jiawei/data/zjw/datasets/coco_small/train_2017_small'
@@ -427,7 +439,7 @@ dataset = CocoDetection(root=dataDir,annFile=annFile, transform=image_transform)
 dataloader = DataLoader(dataset=dataset, batch_size=batch_size,
                               shuffle=False, collate_fn=dataset.collate_fn)
 
-output_directory = "output_adv_images_yolov3"
+output_directory = "output_adv_images_yolov3" + "_" + attack_method
 os.makedirs(output_directory, exist_ok=True)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -443,10 +455,16 @@ for iter_num, (images, targets, image_filenames) in enumerate(dataloader):
     detector = PyTorchYolo(
         model=model, model_type="yolov3", device_type="gpu", input_shape=(3, yolov3_size, yolov3_size), clip_values=(0, 255), attack_losses=("loss_total",)
     )
-    attack = ProjectedGradientDescent(
-        estimator=detector,
-        eps=eps, eps_step=eps_step, max_iter=max_iter, 
-        batch_size=batch_size)
+    if attack_method == 'PGD':
+        print("\n attack method is PGD...\n")
+        attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+    elif attack_method == 'APGD':
+        print("\n attack method is APGD...\n")
+        attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+                                            max_iter=max_iter, targeted=False, nb_random_init=1,
+                                            batch_size=batch_size, loss_type=None, )
+    else:
+        print("Not implemented")
     
     images = images.mul(255).byte().numpy()
     

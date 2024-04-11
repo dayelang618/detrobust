@@ -29,7 +29,7 @@ import torch
 
 from art.estimators.object_detection.pytorch_yolo import PyTorchYolo
 from art.attacks.evasion import ProjectedGradientDescent
-from art.attacks.evasion.fast_gradient import FastGradientMethod
+from art.attacks.evasion.auto_projected_gradient_descent import AutoProjectedGradientDescent
 import cv2
 import matplotlib
 import matplotlib.pyplot as plt
@@ -459,24 +459,13 @@ elif MODEL == "yolov8":
 """
 #################        Example image        #################
 """
-# response = requests.get("https://ultralytics.com/images/zidane.jpg")
-# img = np.asarray(Image.open(BytesIO(response.content)).resize((640, 640)))
 
-# print("cv2.imwrite('ori_image.png'")
-# print("Image shape:", img.shape)
-# print("Image data type:", img.dtype)
-# print("Image min:", img.min())
-# print("Image max:", img.max())
-# img_save = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-# cv2.imwrite('ori_image.png', img_save)
-
+attack_method = 'APGD'
 
 
 img_path = '/home/jiawei/data/zjw/images/10best-cars-group-cropped-1542126037.jpg'
-# img_path = 'banner-diverse-group-of-people-2.jpg'
 img = cv2.imread(img_path)
-# img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-# cv2.imwrite('ori_image1.png', img)
+
 ori_shape = img.shape
 print(ori_shape)
 
@@ -487,9 +476,6 @@ image = np.stack([img_reshape], axis=0).astype(np.float32)
 
 x = image.copy()
 
-# print("\n predict test yolov8\n ")
-# result = model_yolov8.predict(img, show_labels=True, show=True)
-# print("\n predict test yolov8 done...\n ")
 
 
 print("art wrapper predict testing... \n")
@@ -505,8 +491,17 @@ print("\n art wrapper predict testing done!!! \n")
 
 print("\n Release cache...\n")
 torch.cuda.empty_cache()
-print("\n attack method is PGD...\n")
-attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+if attack_method == 'PGD':
+    print("\n attack method is PGD...\n")
+    attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+elif attack_method == 'APGD':
+     print("\n attack method is APGD...\n")
+     attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+                                           max_iter=max_iter, targeted=False, nb_random_init=1,
+                                           batch_size=batch_size, loss_type=None, )
+else:
+    print("Not implemented")
+    
 print("Trying to generate adversarial image...\n")
 
 x_mmdetction = x.transpose(0, 2, 3, 1)
@@ -517,22 +512,18 @@ if x_mmdetction.shape[0] == 1:
 else:
     x_mmdetction = [temp for temp in x_mmdetction]
 y_mmdetection = inference_detector(mmdet_model, x_mmdetction)
-# y_mmdetection = None
 image_adv = attack.generate(x=x, y=None,y_mmdetection=y_mmdetection)
 
 ###################################################################
 # save adversarial_image 
 image_to_save = image_adv[0].transpose(1,2,0).astype(np.uint8)
-# image_to_save = cv2.resize(image_to_save, (ori_shape[1],ori_shape[0]))
-# image_to_save = cv2.cvtColor(image_to_save, cv2.COLOR_BGR2RGB)
+
 print("cv2.imwrite('adversarial_image.png'")
 print("Image shape:", image_to_save.shape)
 print("Image data type:", image_to_save.dtype)
 print("Image min:", image_to_save.min())
 print("Image max:", image_to_save.max())
-# plt.imsave(
-#     'adversarial_image2.png', image_to_save
-# )
+
 cv2.imwrite('adversarial_image1.png',image_to_save)
 ###################################################################
 print("\nThe attack budget eps is {}".format(eps))
@@ -555,8 +546,6 @@ print("Adversarial image min:", image_adv.min(), "max:", image_adv.max())
 
 
 
-image_test = img.copy()
-image_test += 1
 
 # print("\n predict test yolov8 image_adv\n ")
 # test = image_adv[0].transpose(1,2,0).astype(np.uint8)
