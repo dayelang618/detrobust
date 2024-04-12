@@ -85,7 +85,7 @@ print("Accuracy on benign test examples: {}%".format(accuracy * 100))
 # Step 6: Generate adversarial test examples
 attack = FastGradientMethod(estimator=classifier, eps=0.2)
 attack2 = CarliniL2Method(estimator=classifier)
-attack3 = SquareAttack(estimator=classifier, norm=np.inf, max_iter=5000, eps=0.3, p_init=0.8, nb_restarts=5)
+attack3 = SquareAttack(estimator=classifier, norm=np.inf, max_iter=50, eps=0.3, p_init=0.8, nb_restarts=5)
 x_test_adv = attack3.generate(x=x_test, classifier_mixin=True)
 
 # Step 7: Evaluate the ART classifier on adversarial test examples

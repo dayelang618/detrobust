@@ -25,7 +25,7 @@ import logging
 import math
 import random
 from typing import Optional, Union, Callable, TYPE_CHECKING, List, Dict, Optional, Tuple, Union
-
+import torch
 import numpy as np
 from tqdm.auto import trange
 
@@ -553,6 +553,19 @@ def calculate_iou(bbox1, bbox2):
     iou = intersection / union
     
     return iou
+
+
+def pad_arrays(arr1, arr2):
+    max_len = max(len(arr1), len(arr2))
+    pad_value = float('inf')
+    
+    padded_arr1 = np.pad(arr1, (0, max_len - len(arr1)), mode='constant', constant_values=pad_value)
+    padded_arr2 = np.pad(arr2, (0, max_len - len(arr2)), mode='constant', constant_values=pad_value)
+    
+    return padded_arr1, padded_arr2
+
+
+
 class SquareAttackDetection(EvasionAttack):
     """
     This class implements the `SquareAttack` attack.
@@ -605,6 +618,7 @@ class SquareAttackDetection(EvasionAttack):
 
         self.norm = norm
         self.loss = self._get_logits_diff
+        # self.loss = self.estimator.compute_loss
 
         self.max_iter = max_iter
         self.eps = eps
@@ -614,18 +628,8 @@ class SquareAttackDetection(EvasionAttack):
         self.verbose = verbose
         self._check_params()
 
-    # def _get_logits_diff(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    #     y_pred = self.estimator.predict(x, batch_size=self.batch_size)
-
-    #     logit_correct = np.take_along_axis(y_pred, np.expand_dims(np.argmax(y, axis=1), axis=1), axis=1)
-    #     logit_highest_incorrect = np.take_along_axis(
-    #         y_pred, np.expand_dims(np.argsort(y_pred, axis=1)[:, -2], axis=1), axis=1
-    #     )
-
-    #     return (logit_correct - logit_highest_incorrect)[:, 0]
     
 
-    
     
     def _get_logits_diff(self, x: np.ndarray, y: List[Dict]) -> np.ndarray:
         predictions = self.estimator.predict(x, batch_size=self.batch_size)
@@ -662,7 +666,7 @@ class SquareAttackDetection(EvasionAttack):
                     incorrect_logits.append(incorrect_logit)
             logits_highest_incorrect.extend(incorrect_logits)
 
-        return np.array(logits_correct) - np.array(logits_highest_incorrect)
+        return sum(np.array(logits_correct) - np.array(logits_highest_incorrect))
 
 
 
@@ -714,6 +718,7 @@ class SquareAttackDetection(EvasionAttack):
             x_robust = x
             y_robust = y
             sample_loss_init = self.loss(x_robust, y_robust)
+            print("\n sample_loss_init: ", sample_loss_init)
 
             if self.norm in [np.inf, "inf"]:
 
@@ -730,10 +735,11 @@ class SquareAttackDetection(EvasionAttack):
                 ).astype(ART_NUMPY_DTYPE)
 
                 sample_loss_new = self.loss(x_robust_new, y_robust)
-                # loss_improved = (sample_loss_new - sample_loss_init) < 0.0
+                print("\n sample_loss_new: ", sample_loss_new)
+                loss_improved = (sample_loss_new - sample_loss_init) < 0.0
+                print("loss_improved: ", loss_improved)
 
-                # x_robust[loss_improved] = x_robust_new[loss_improved]
-                x_robust = x_robust_new
+                x_robust[loss_improved] = x_robust_new[loss_improved]
                 x_adv = x_robust
 
                 for i_iter in trange(
@@ -749,10 +755,10 @@ class SquareAttackDetection(EvasionAttack):
 
                     x_robust = x_adv
                     x_init = x
-                    y_robust = y
+                    y_robust = y_pred
 
                     sample_loss_init = self.loss(x_robust, y_robust)
-
+                    print("\n sample_loss_init: ", sample_loss_init)
                     # height_tile = max(int(round(math.sqrt(percentage_of_elements * height * width))), 1)
                     height_tile = min(max(int(round(math.sqrt(percentage_of_elements * height * width))), 1), height-2)
 
@@ -779,10 +785,12 @@ class SquareAttackDetection(EvasionAttack):
                     ).astype(ART_NUMPY_DTYPE)
 
                     sample_loss_new = self.loss(x_robust_new, y_robust)
-                    # loss_improved = (sample_loss_new - sample_loss_init) < 0.0
+                    print("sample_loss_new: ", sample_loss_new)
+                    loss_improved = (sample_loss_new - sample_loss_init) < 0.0
+                    print("loss_improved: ", loss_improved)
 
-                    # x_robust[loss_improved] = x_robust_new[loss_improved]
-                    x_robust = x_robust_new
+                    x_robust[loss_improved] = x_robust_new[loss_improved]
+                    # x_robust = x_robust_new
                     x_adv = x_robust
 
             elif self.norm == 2:

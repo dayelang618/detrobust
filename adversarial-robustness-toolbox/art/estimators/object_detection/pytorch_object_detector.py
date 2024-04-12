@@ -556,3 +556,5 @@ class PyTorchObjectDetector(ObjectDetectorMixin, PyTorchEstimator):
             return loss
 
         return loss.detach().cpu().numpy()
+
+

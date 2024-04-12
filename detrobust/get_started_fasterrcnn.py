@@ -348,7 +348,9 @@ def main():
     
     # Create ART object detector
     frcnn = PyTorchFasterRCNN(
-        model=model, clip_values=(0, 255), attack_losses=[ "none_detector_loss"],
+        model=model, clip_values=(0, 255), 
+        # attack_losses=[ "none_detector_loss"],
+        attack_losses=["loss_classifier", "loss_box_reg", "loss_objectness", "loss_rpn_box_reg"],
         attack_method='CW',
         input_shape = (3, 2139, 3500),
     )
@@ -400,7 +402,7 @@ def main():
     attack2 = CarliniLInfMethod(estimator=frcnn)
     # attack3 = CarliniL2Method(estimator=frcnn, max_iter=5, max_halving=2, max_doubling=2)
     attack3 = CarliniL2Method(estimator=frcnn)
-    attack4 = SquareAttackDetection(estimator=frcnn, norm=np.inf, max_iter=5000, eps=eps, p_init=0.8, nb_restarts=5)
+    attack4 = SquareAttackDetection(estimator=frcnn, norm=np.inf, max_iter=5000, eps=eps, p_init=0.8, nb_restarts=1)
     image_adv = attack4.generate(x=image, y=None)
     # image_adv = attack.generate(x=image, y=None)
 

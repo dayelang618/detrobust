@@ -450,3 +450,35 @@ class PyTorchFasterRCNN(PyTorchObjectDetector):
                     predictions.append(prediction)
                     
             return predictions
+        
+        
+    # def compute_loss_persample(self, x: np.ndarray, y: List[Dict[str, Union[np.ndarray, "torch.Tensor"]]], **kwargs) -> Union[np.ndarray, "torch.Tensor"]:
+    #     """
+    #     Compute the loss of the neural network for samples `x`.
+
+    #     :param x: Samples of shape NCHW or NHWC.
+    #     :param y: Target values of format `List[Dict[str, Union[np.ndarray, torch.Tensor]]]`, one for each input image.
+    #             The fields of the Dict are as follows:
+    #             - boxes [N, 4]: the boxes in [x1, y1, x2, y2] format, with 0 <= x1 < x2 <= W and 0 <= y1 < y2 <= H.
+    #             - labels [N]: the labels for each image.
+    #     :return: Loss per sample.
+    #     """
+    #     import torch
+    #     loss_components, _ = self._get_losses(x=x, y=y)
+    #     print("loss_components: ", loss_components)
+    #     # Compute the total loss per sample
+    #     losses_per_sample = []
+    #     for i in range(len(y)):  # Loop over samples in the batch
+    #         sample_losses = []
+    #         for loss_name in self.attack_losses:
+    #             sample_loss = loss_components[loss_name].item() if isinstance(loss_components[loss_name], torch.Tensor) else loss_components[loss_name]
+    #             sample_losses.append(sample_loss)  # Get the loss for the current sample
+    #         total_loss = sum(sample_losses)  # Sum all losses for this sample
+    #         losses_per_sample.append(total_loss)
+
+    #     losses_per_sample = torch.tensor(losses_per_sample)  # Convert to tensor
+
+    #     if isinstance(x, torch.Tensor):
+    #         return losses_per_sample
+
+    #     return losses_per_sample.detach().cpu().numpy()
