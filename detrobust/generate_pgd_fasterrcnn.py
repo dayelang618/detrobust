@@ -4,6 +4,9 @@ import cv2
 import os
 import matplotlib.pyplot as plt
 from art.attacks.evasion import ProjectedGradientDescent
+from art.attacks.evasion.auto_projected_gradient_descent import AutoProjectedGradientDescent
+
+
 from art.estimators.object_detection import PyTorchFasterRCNN
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
@@ -422,26 +425,28 @@ adversarial_save = True
 adversarial_inference = False
 
 eps = 8 # 8/255
-eps_step = 2
+eps_step = 1
 max_iter = 5
-batch_size = 8
+batch_size = 4
 #################        Model Wrapper       #################
 
 
-attack = ProjectedGradientDescent(
-    estimator=frcnn,
-    eps=eps, eps_step=eps_step, max_iter=max_iter, 
-    batch_size=batch_size)
-
+# attack = ProjectedGradientDescent(
+#     estimator=frcnn,
+#     eps=eps, eps_step=eps_step, max_iter=max_iter, 
+#     batch_size=batch_size)
+attack = AutoProjectedGradientDescent(estimator=frcnn, eps=eps, eps_step=eps_step, 
+                                        max_iter=100, targeted=False, nb_random_init=1,
+                                        batch_size=batch_size, loss_type=None, )
 #################        Load COCO dataset      #################
 image_transform = transforms.Compose([
     # transforms.ToTensor(),
     transforms.Resize((1333, 800)),#h,w 跟mmdetevtion cv2一致
 ])
-# dataDir = '/home/jiawei/data/zjw/datasets/coco/images/val2017'
-# annFile='/home/jiawei/data/zjw/datasets/coco/annotations/instances_val2017.json'
-dataDir = '/home/jiawei/data/zjw/datasets/coco_small/train_2017_small'
-annFile = '/home/jiawei/data/zjw/datasets/coco_small/instances_train2017_small.json'
+dataDir = '/home/jiawei/data/zjw/datasets/coco/images/val2017'
+annFile='/home/jiawei/data/zjw/datasets/coco/annotations/instances_val2017.json'
+# dataDir = '/home/jiawei/data/zjw/datasets/coco_small/train_2017_small'
+# annFile = '/home/jiawei/data/zjw/datasets/coco_small/instances_train2017_small.json'
 
 # dataset = MyCocoDetection(root=dataDir,annFile=annFile, transform=image_transform)
 dataset = TestCocoDetection(root=dataDir,annFile=annFile,transform=image_transform)
@@ -456,7 +461,7 @@ train_dataloader = DataLoader(dataset=dataset, batch_size=batch_size,
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-output_directory = "output_adv_images"
+output_directory = "output_adv_images_frcnn"
 os.makedirs(output_directory, exist_ok=True)
 threshold = 0.4
 for iter_num, (images, targets, image_filenames, ori_image_size) in enumerate(train_dataloader):

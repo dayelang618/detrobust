@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from art.estimators.object_detection.pytorch_ssd import PytorchSSD
 from art.attacks.evasion import ProjectedGradientDescent
-
+from art.attacks.evasion.auto_projected_gradient_descent import AutoProjectedGradientDescent
 
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
@@ -387,12 +387,12 @@ def generate_adversarial_image(image, attack):
     else:
         x_mmdetction = [temp for temp in x_mmdetction]
     y_mmdetection = inference_detector(mmdet_model, x_mmdetction)
-
-    try:
-        return attack.generate(x=image, y=None,y_mmdetection=y_mmdetection)
-    except IndexError:
-        print("\n ########### skip this iteration ########### \n")
-        return None  
+    return attack.generate(x=image, y=None,y_mmdetection=y_mmdetection)
+    # try:
+    #     return attack.generate(x=image, y=None,y_mmdetection=y_mmdetection)
+    # except IndexError:
+    #     print("\n ########### skip this iteration ########### \n")
+    #     return None  
 #################        Evasion settings        #################
 adversarial_save = True
 
@@ -400,7 +400,7 @@ adversarial_save = True
 eps = 8 # 8
 eps_step = 1
 max_iter = 10
-batch_size = 8
+batch_size = 16
 #################        Model Wrapper       #################
 model_input_size = 512
 config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/ssd512_coco.py'
@@ -414,19 +414,21 @@ model = MySSD(mmdet_model)
 detector = PytorchSSD(
     model=model, device_type="gpu", input_shape=(3, model_input_size, model_input_size), clip_values=(0, 255), attack_losses=("loss_total",)
 )
-attack = ProjectedGradientDescent(
-    estimator=detector,
-    eps=eps, eps_step=eps_step, max_iter=max_iter, 
-    batch_size=batch_size)
-
+# attack = ProjectedGradientDescent(
+#     estimator=detector,
+#     eps=eps, eps_step=eps_step, max_iter=max_iter, 
+#     batch_size=batch_size)
+attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+                                        max_iter=100, targeted=False, nb_random_init=1,
+                                        batch_size=batch_size, loss_type=None, )
 #################        Load COCO dataset      #################
 image_transform = transforms.Compose([
     transforms.Resize((model_input_size, model_input_size)),
 ])
 dataDir = '/home/jiawei/data/zjw/datasets/coco/images/val2017'
 annFile='/home/jiawei/data/zjw/datasets/coco/annotations/instances_val2017.json'
-dataDir = '/home/jiawei/data/zjw/datasets/coco_small/train_2017_small'
-annFile='/home/jiawei/data/zjw/datasets/coco_small/instances_train2017_small.json'
+# dataDir = '/home/jiawei/data/zjw/datasets/coco_small/train_2017_small'
+# annFile='/home/jiawei/data/zjw/datasets/coco_small/instances_train2017_small.json'
 dataset = CocoDetection(root=dataDir,annFile=annFile, transform=image_transform)
 
 

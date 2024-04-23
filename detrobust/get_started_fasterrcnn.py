@@ -398,13 +398,18 @@ def main():
     # Create and run attack
     print("\n Create and run attack ...")
     eps = 8
+    eps_step = 1
+    
     attack = ProjectedGradientDescent(estimator=frcnn, eps=eps, eps_step=2, max_iter=10)
     attack2 = CarliniLInfMethod(estimator=frcnn)
     # attack3 = CarliniL2Method(estimator=frcnn, max_iter=5, max_halving=2, max_doubling=2)
     attack3 = CarliniL2Method(estimator=frcnn)
     attack4 = SquareAttackDetection(estimator=frcnn, norm=np.inf, max_iter=5000, eps=eps, p_init=0.8, nb_restarts=1)
-    image_adv = attack4.generate(x=image, y=None)
-    # image_adv = attack.generate(x=image, y=None)
+    attack5 = AutoProjectedGradientDescent(estimator=frcnn, eps=eps, eps_step=eps_step, 
+                                           max_iter=100, targeted=False, nb_random_init=1,
+                                           batch_size=2, loss_type=None, )
+    image_adv = attack5.generate(x=image, y=None)
+
 
     print("\nThe attack budget eps is {}".format(eps))
     print("The resulting maximal difference in pixel values is {}.".format(np.amax(np.abs(image - image_adv))))

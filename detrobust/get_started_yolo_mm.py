@@ -188,7 +188,7 @@ def plot_image_with_boxes(img, boxes, pred_cls, title):
 eps = 8
 eps_step = 2
 max_iter = 5
-batch_size = 1
+batch_size = 2
 
 
 """
@@ -497,7 +497,7 @@ if attack_method == 'PGD':
 elif attack_method == 'APGD':
      print("\n attack method is APGD...\n")
      attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
-                                           max_iter=max_iter, targeted=False, nb_random_init=1,
+                                           max_iter=100, targeted=False, nb_random_init=1,
                                            batch_size=batch_size, loss_type=None, )
 else:
     print("Not implemented")

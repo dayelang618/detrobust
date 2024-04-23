@@ -6,7 +6,7 @@ import torch
 from art.attacks.evasion import ProjectedGradientDescent
 
 from art.estimators.object_detection.pytorch_ssd import PytorchSSD
-
+from art.attacks.evasion.auto_projected_gradient_descent import AutoProjectedGradientDescent
 
 import cv2
 import matplotlib
@@ -166,7 +166,7 @@ def plot_image_with_boxes(img, boxes, pred_cls, title):
 eps = 8
 eps_step = 2
 max_iter = 5
-batch_size = 1
+batch_size = 2
 
 
 """
@@ -185,52 +185,34 @@ class MySSD(torch.nn.Module):
         super().__init__()
         self.model = model
     def compute_loss(self, imgs, targets, test_pipeline=None):
-        model = self.model
-        model.train()
-        targets.gt_instances = targets.pred_instances
-        
-        if isinstance(imgs, (list, tuple)):
-            is_batch = True
-        else:
-            imgs = [imgs]
-            is_batch = False
-        if isinstance(targets, (list, tuple)):
-            targets = targets
-        else:
-            targets = [targets]
-        
-        cfg = model.cfg
-        
-        if test_pipeline is None:
-            cfg = cfg.copy()
-            test_pipeline = get_test_pipeline_cfg(cfg)
-            if isinstance(imgs[0], np.ndarray):
-                # Calling this method across libraries will result
-                # in module unregistered error if not prefixed with mmdet.
-                test_pipeline[0].type = 'mmdet.LoadImageFromNDArray'
-
-            test_pipeline = Compose(test_pipeline)        
-
-        
-        loss_list = []
-        for i, img in enumerate(imgs):
-            # prepare data
-            if isinstance(img, np.ndarray) or isinstance(img, torch.Tensor):
-                # TODO: remove img_id.
-                data_ = dict(img=img, img_id=0)
-            else:
-                # TODO: remove img_id.
-                data_ = dict(img_path=img, img_id=0)
+            model = self.model
+            model.train()
 
             
-            loss = model.loss(img, targets)
+            if imgs.shape[0] > 1:
+                is_batch = True
+            else:
+                imgs = [imgs]
+                is_batch = False
+            if isinstance(targets, (list, tuple)):
+                for target in targets:
+                    target.gt_instances = target.pred_instances
+            else:
+                targets = [targets]
+                targets.gt_instances = targets.pred_instances     
+
+            
+            loss_list = []
+
+
+            loss = model.loss(imgs, targets)
             parsed_losses, log_vars = self.model.parse_losses(loss) 
             loss_list.append(log_vars)
 
-        if not is_batch:
-            return loss_list[0]
-        else:
-            return loss_list
+            if not is_batch:
+                return loss_list[0]
+            else:
+                return loss_list
         
         
     def forward(self, batch_inputs, targets=None, y_mmdetection=None):
@@ -300,27 +282,32 @@ detector = PytorchSSD(
 
 
 img_path = '/home/jiawei/data/zjw/images/10best-cars-group-cropped-1542126037.jpg'
-
+img_path_1 = '/home/jiawei/data/zjw/images/banner-diverse-group-of-people-2.jpg'
 img = cv2.imread(img_path)
-
+img1 = cv2.imread(img_path_1)
 ori_shape = img.shape
 print(ori_shape)
 
 img = cv2.resize(img, dsize=(512, 512), interpolation=cv2.INTER_CUBIC)
 img = np.asarray(img)
 img_reshape = img.transpose((2, 0, 1))
-image = np.stack([img_reshape], axis=0).astype(np.float32) 
+
+img1 = cv2.resize(img1, dsize=(512, 512), interpolation=cv2.INTER_CUBIC)
+img1 = np.asarray(img1)
+img1_reshape = img1.transpose((2, 0, 1))
+
+image = np.stack([img_reshape,img1_reshape] , axis=0).astype(np.float32) 
 
 x = image.copy()
 
 
-
 print("art wrapper predict testing... \n")
 threshold = 0.5  # 0.5(v5) or 0.85(v3)
-dets = detector.predict(x)
+dets = detector.predict(x=image)
 
-preds = extract_predictions(dets[0], threshold)
-plot_image_with_boxes(img=img, boxes=preds[1], pred_cls=preds[0], title="Predictions on original image")
+# preds = extract_predictions(dets[0], threshold)
+# plot_image_with_boxes(img=img, boxes=preds[1], pred_cls=preds[0], title="Predictions on original image")
+
 print("\n art wrapper predict testing done!!! \n")
 """
 #################        Evasion attack        #################
@@ -328,8 +315,12 @@ print("\n art wrapper predict testing done!!! \n")
 
 print("\n Release cache...\n")
 torch.cuda.empty_cache()
-print("\n attack method is PGD...\n")
-attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+# print("\n attack method is PGD...\n")
+# attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+
+attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+                                        max_iter=100, targeted=False, nb_random_init=1,
+                                        batch_size=batch_size, loss_type=None, )
 print("Trying to generate adversarial image...\n")
 
 x_mmdetction = x.transpose(0, 2, 3, 1)

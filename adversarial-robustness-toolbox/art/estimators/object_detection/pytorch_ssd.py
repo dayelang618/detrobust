@@ -378,3 +378,37 @@ class PytorchSSD(ObjectDetectorMixin, PyTorchEstimator):
                              
 
         return predictions
+    
+    def compute_loss(  # type: ignore
+        self, x: Union[np.ndarray, "torch.Tensor"], y: List[Dict[str, Union[np.ndarray, "torch.Tensor"]]],
+        y_mmdetection=None, **kwargs
+    ) -> Union[np.ndarray, "torch.Tensor"]:
+        """
+        Compute the loss of the neural network for samples `x`.
+
+        :param x: Samples of shape NCHW or NHWC.
+        :param y: Target values of format `List[Dict[str, Union[np.ndarray, torch.Tensor]]]`, one for each input image.
+                    The fields of the Dict are as follows:
+
+                    - boxes [N, 4]: the boxes in [x1, y1, x2, y2] format, with 0 <= x1 < x2 <= W and 0 <= y1 < y2 <= H.
+                    - labels [N]: the labels for each image.
+        :return: Loss.
+        """
+        import torch
+
+        loss_components, _ = self._get_losses(x=x, y=y, y_mmdetection=y_mmdetection)
+        # print("loss_components ", loss_components)
+        # Compute the gradient and return
+        loss = None
+        for loss_name in self.attack_losses:
+            if loss is None:
+                loss = loss_components[loss_name]
+            else:
+                loss = loss + loss_components[loss_name]
+
+        assert loss is not None
+
+        if isinstance(x, torch.Tensor):
+            return loss
+
+        return loss.detach().cpu().numpy()
