@@ -164,8 +164,8 @@ def plot_image_with_boxes(img, boxes, pred_cls, title):
 #################        Evasion settings        #################
 """
 eps = 8
-eps_step = 2
-max_iter = 5
+eps_step = 1
+max_iter = 10
 batch_size = 2
 
 
@@ -315,12 +315,12 @@ print("\n art wrapper predict testing done!!! \n")
 
 print("\n Release cache...\n")
 torch.cuda.empty_cache()
-# print("\n attack method is PGD...\n")
-# attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+print("\n attack method is PGD...\n")
+attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
 
-attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
-                                        max_iter=100, targeted=False, nb_random_init=1,
-                                        batch_size=batch_size, loss_type=None, )
+# attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+#                                         max_iter=100, targeted=False, nb_random_init=1,
+#                                         batch_size=batch_size, loss_type=None, )
 print("Trying to generate adversarial image...\n")
 
 x_mmdetction = x.transpose(0, 2, 3, 1)
@@ -347,7 +347,7 @@ print("Image max:", image_to_save.max())
 # plt.imsave(
 #     'adversarial_image2.png', image_to_save
 # )
-cv2.imwrite('adversarial_image1.png',image_to_save)
+cv2.imwrite('adversarial_image_ssd_cw.png',image_to_save)
 ###################################################################
 print("\nThe attack budget eps is {}".format(eps))
 print("The resulting maximal difference in pixel values is {}.".format(np.amax(np.abs(x - image_adv))))

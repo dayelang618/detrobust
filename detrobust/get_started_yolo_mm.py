@@ -1,3 +1,4 @@
+
 """
 The script demonstrates a simple example of using ART with YOLO (versions 3 and 5).
 The example loads a YOLO model pretrained on the COCO dataset
@@ -25,7 +26,6 @@ import numpy as np
 from PIL import Image
 from io import BytesIO
 import torch
-
 
 from art.estimators.object_detection.pytorch_yolo import PyTorchYolo
 from art.attacks.evasion import ProjectedGradientDescent
@@ -460,7 +460,7 @@ elif MODEL == "yolov8":
 #################        Example image        #################
 """
 
-attack_method = 'APGD'
+attack_method = 'PGD'
 
 
 img_path = '/home/jiawei/data/zjw/images/10best-cars-group-cropped-1542126037.jpg'
@@ -524,7 +524,7 @@ print("Image data type:", image_to_save.dtype)
 print("Image min:", image_to_save.min())
 print("Image max:", image_to_save.max())
 
-cv2.imwrite('adversarial_image1.png',image_to_save)
+cv2.imwrite('adversarial_image_yolo_cw.png',image_to_save)
 ###################################################################
 print("\nThe attack budget eps is {}".format(eps))
 print("The resulting maximal difference in pixel values is {}.".format(np.amax(np.abs(x - image_adv))))
