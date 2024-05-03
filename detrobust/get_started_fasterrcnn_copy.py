@@ -262,9 +262,10 @@ class MyFasterRCNN(torch.nn.Module):
     
     def cw_cls_loss(self, class_logits, num_classes=91, targeted=False, kappa=0):
         batch_losses = []
+        # print("class_logits.len: ", len(class_logits))
         for logits in class_logits:
             logits = torch.Tensor(logits)
-            logits = 1 / 2 * (torch.tanh(logits) + 1)
+            # logits = 1 / 2 * (torch.tanh(logits) + 1)
             
             num_targets = logits.size(0)
 
@@ -288,7 +289,6 @@ class MyFasterRCNN(torch.nn.Module):
 
             cw_loss = f.sum()
             batch_losses.append(cw_loss / num_targets) #均值 求和太大了
-
 
         return sum(batch_losses) / len(class_logits)
     
@@ -318,7 +318,7 @@ class MyFasterRCNN(torch.nn.Module):
             loss_objectness, loss_rpn_box_reg = proposal_losses["loss_objectness"], proposal_losses["loss_rpn_box_reg"] 
             #原来的cls loss不要了
             loss_classifier, loss_box_reg = detector_losses["loss_classifier"],  detector_losses["loss_box_reg"] 
-        
+            print("original loss_classifier:", loss_classifier)
             
             loss_classifier = self.cw_cls_loss(target_class_logtis)
             # print("\n cw_cls_loss: ",loss_classifier)

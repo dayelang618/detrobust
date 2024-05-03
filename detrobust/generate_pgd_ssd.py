@@ -400,27 +400,28 @@ adversarial_save = True
 eps = 8 # 8
 eps_step = 1
 max_iter = 10
-batch_size = 16
+batch_size = 4
 #################        Model Wrapper       #################
 model_input_size = 512
 config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/ssd512_coco.py'
 checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/ssd512_coco_20210803_022849-0a47a1ca.pth'
 
 
-
+attack_method = 'PGD'
 mmdet_model = init_detector(config_file, checkpoint_file, device='cuda:0')
 model = MySSD(mmdet_model)
 
 detector = PytorchSSD(
     model=model, device_type="gpu", input_shape=(3, model_input_size, model_input_size), clip_values=(0, 255), attack_losses=("loss_total",)
 )
-# attack = ProjectedGradientDescent(
-#     estimator=detector,
-#     eps=eps, eps_step=eps_step, max_iter=max_iter, 
-#     batch_size=batch_size)
-attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
-                                        max_iter=100, targeted=False, nb_random_init=1,
-                                        batch_size=batch_size, loss_type=None, )
+if attack_method == 'PGD':
+    print("\n attack method is PGD...\n")
+    attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+elif attack_method == 'APGD':
+     print("\n attack method is APGD...\n")
+     attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+                                           max_iter=max_iter, targeted=False, nb_random_init=1,
+                                           batch_size=batch_size, loss_type=None, )
 #################        Load COCO dataset      #################
 image_transform = transforms.Compose([
     transforms.Resize((model_input_size, model_input_size)),
@@ -435,7 +436,7 @@ dataset = CocoDetection(root=dataDir,annFile=annFile, transform=image_transform)
 dataloader = DataLoader(dataset=dataset, batch_size=batch_size,
                               shuffle=False, collate_fn=dataset.collate_fn)
 
-output_directory = "output_adv_images_ssd"
+output_directory = "output_adv_images_ssd_cw"
 os.makedirs(output_directory, exist_ok=True)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -452,10 +453,14 @@ for iter_num, (images, targets, image_filenames) in enumerate(dataloader):
         model=model, device_type="gpu", input_shape=(3, model_input_size, model_input_size), clip_values=(0, 255), attack_losses=("loss_total",)
     )
     
-    attack = ProjectedGradientDescent(
-        estimator=detector,
-        eps=eps, eps_step=eps_step, max_iter=max_iter, 
-        batch_size=batch_size)
+    if attack_method == 'PGD':
+        print("\n attack method is PGD...\n")
+        attack = ProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, max_iter=max_iter, batch_size=batch_size)
+    elif attack_method == 'APGD':
+        print("\n attack method is APGD...\n")
+        attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
+                                            max_iter=max_iter, targeted=False, nb_random_init=1,
+                                            batch_size=batch_size, loss_type=None, )
     
     images = images.mul(255).byte().numpy()
     

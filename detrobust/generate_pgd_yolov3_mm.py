@@ -389,14 +389,14 @@ adversarial_save = True
 
 eps = 8 # 8
 eps_step = 1
-max_iter = 100 #100 for APGD, 10 for PGD
-batch_size = 8
+max_iter = 10 #100 for APGD, 10 for PGD
+batch_size = 4
 #################        Model Wrapper       #################
 yolov3_size = 608
 config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-608-273e_coco.py'
 checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth'
-attack_method = 'APGD'
-# attack_method = 'PGD'
+# attack_method = 'APGD'
+attack_method = 'PGD'
 
 # config_file = '/home/jiawei/data/zjw/mmdetection/my_configs/yolov3_d53_8xb8-ms-416-273e_coco.py'
 # checkpoint_file = '/home/jiawei/data/zjw/mmdetection/checkpoints/yolov3_d53_mstrain-416_273e_coco-2b60fcd9.pth'
@@ -417,7 +417,7 @@ if attack_method == 'PGD':
 elif attack_method == 'APGD':
      print("\n attack method is APGD...\n")
      attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
-                                           max_iter=max_iter, targeted=False, nb_random_init=1,
+                                           max_iter=100, targeted=False, nb_random_init=1,
                                            batch_size=batch_size, loss_type=None, )
 else:
     print("Not implemented")
@@ -439,7 +439,7 @@ dataset = CocoDetection(root=dataDir,annFile=annFile, transform=image_transform)
 dataloader = DataLoader(dataset=dataset, batch_size=batch_size,
                               shuffle=False, collate_fn=dataset.collate_fn)
 
-output_directory = "output_adv_images_yolov3" + "_" + attack_method
+output_directory = "output_adv_images_yolov3_cw"
 os.makedirs(output_directory, exist_ok=True)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -461,7 +461,7 @@ for iter_num, (images, targets, image_filenames) in enumerate(dataloader):
     elif attack_method == 'APGD':
         print("\n attack method is APGD...\n")
         attack = AutoProjectedGradientDescent(estimator=detector, eps=eps, eps_step=eps_step, 
-                                            max_iter=max_iter, targeted=False, nb_random_init=1,
+                                            max_iter=100, targeted=False, nb_random_init=1,
                                             batch_size=batch_size, loss_type=None, )
     else:
         print("Not implemented")

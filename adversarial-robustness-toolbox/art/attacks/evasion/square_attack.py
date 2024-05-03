@@ -643,21 +643,33 @@ class SquareAttackDetection(EvasionAttack):
             pred_class_logits = prediction["class_logits"]
 
             # Match ground truth and predictions
+            # matches = np.zeros(len(gt_labels), dtype=int)
+            # for i, gt_label in enumerate(gt_labels):
+            #     best_match = -1
+            #     max_iou = 0
+            #     for j, pred_box in enumerate(pred_boxes):
+            #         iou = calculate_iou(gt_boxes[i], pred_box)
+            #         if iou > max_iou:
+            #             max_iou = iou
+            #             best_match = j
+            #     matches[i] = best_match
+
+            # top-k predictions
             matches = np.zeros(len(gt_labels), dtype=int)
             for i, gt_label in enumerate(gt_labels):
                 best_match = -1
-                max_iou = 0
-                for j, pred_box in enumerate(pred_boxes):
-                    iou = calculate_iou(gt_boxes[i], pred_box)
-                    if iou > max_iou:
-                        max_iou = iou
+                max_score = -1
+                for j, logit in enumerate(pred_class_logits):
+                    score = logit[gt_label]
+                    if score > max_score:
+                        max_score = score
                         best_match = j
                 matches[i] = best_match
-
+            
             # Find the logits for the correct class predictions
             correct_logits = [pred_class_logits[j, gt_labels[i]] for i, j in enumerate(matches) if j >= 0]
             logits_correct.extend(correct_logits)
-
+            # print("logits_correct: ", logits_correct)
             # Find the logits for the highest incorrect class predictions
             incorrect_logits = []
             for i, j in enumerate(matches):
@@ -665,7 +677,7 @@ class SquareAttackDetection(EvasionAttack):
                     incorrect_logit = np.max(pred_class_logits[j, :] - np.take(pred_class_logits[j, :], gt_labels[i]))
                     incorrect_logits.append(incorrect_logit)
             logits_highest_incorrect.extend(incorrect_logits)
-
+            # print("logits_highest_incorrect: ", logits_highest_incorrect)
         return sum(np.array(logits_correct) - np.array(logits_highest_incorrect))
 
 
@@ -733,7 +745,8 @@ class SquareAttackDetection(EvasionAttack):
                     a_min=self.estimator.clip_values[0],
                     a_max=self.estimator.clip_values[1],
                 ).astype(ART_NUMPY_DTYPE)
-
+                
+                
                 sample_loss_new = self.loss(x_robust_new, y_robust)
                 print("\n sample_loss_new: ", sample_loss_new)
                 loss_improved = (sample_loss_new - sample_loss_init) < 0.0
@@ -784,6 +797,8 @@ class SquareAttackDetection(EvasionAttack):
                         x_robust_new, a_min=self.estimator.clip_values[0], a_max=self.estimator.clip_values[1]
                     ).astype(ART_NUMPY_DTYPE)
 
+                    #test zjw 0502 
+                    # y_robust = self.estimator.predict(x_robust_new)
                     sample_loss_new = self.loss(x_robust_new, y_robust)
                     print("sample_loss_new: ", sample_loss_new)
                     loss_improved = (sample_loss_new - sample_loss_init) < 0.0
